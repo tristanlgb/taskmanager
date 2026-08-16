@@ -36,4 +36,8 @@ npm run dev
 npm run build
 ```
 
+## Automatización con n8n
+
+TaskFlow puede enviar su plan diario a un workflow de n8n que prioriza cada tarea con IA, registra el análisis en Google Sheets y alerta por Telegram y Gmail cuando detecta urgencia. Importá `n8n/taskflow-automation.json` y seguí `n8n/README.md`. El webhook se configura desde el engranaje del panel automático o mediante `VITE_N8N_WEBHOOK_URL`.
+
 > Esta versión reemplaza el backend Laravel por persistencia local para que pueda ejecutarse como frontend independiente. Para producción se puede conectar posteriormente a NestJS/Express + MongoDB o a cualquier API REST.

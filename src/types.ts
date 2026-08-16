@@ -13,3 +13,5 @@ export interface Task {
   createdAt: string;
 }
 export interface User { id: string; name: string; email: string; }
+export interface AutomationSettings { webhookUrl: string; enabled: boolean; }
+export interface AutomationResult { priority: 'low'|'medium'|'high'|'critical'; score: number; summary: string; nextSteps: string[]; notified?: boolean; }
