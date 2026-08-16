@@ -14,4 +14,26 @@ export interface Task {
 }
 export interface User { id: string; name: string; email: string; }
 export interface AutomationSettings { webhookUrl: string; enabled: boolean; }
-export interface AutomationResult { priority: 'low'|'medium'|'high'|'critical'; score: number; summary: string; nextSteps: string[]; notified?: boolean; }
+export type DeliveryStatus = 'sent'|'skipped'|'not_configured'|'failed';
+export interface NotificationPreferences {
+  emailEnabled: boolean;
+  emailAddress: string;
+  telegramEnabled: boolean;
+  telegramConnected: boolean;
+  telegramChatId?: string;
+  urgentAlerts: boolean;
+  dueAlerts: boolean;
+  dailySummary: boolean;
+  advanceHours: number;
+  dailyTime: string;
+}
+export interface AutomationResult {
+  priority: 'low'|'medium'|'high'|'critical';
+  score: number;
+  summary: string;
+  reason?: string;
+  nextSteps: string[];
+  delivery: { email: DeliveryStatus; telegram: DeliveryStatus };
+  processedAt?: string;
+  taskId?: string;
+}

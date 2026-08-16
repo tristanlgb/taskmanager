@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Archive, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Filter, ImagePlus, LayoutDashboard, LoaderCircle, LogOut, Menu, Pencil, Plus, Search, Settings2, Trash2, X, Zap } from 'lucide-react';
+import { Archive, Bell, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Filter, ImagePlus, LayoutDashboard, LoaderCircle, LogOut, Menu, Pencil, Plus, Search, Settings2, Trash2, X, Zap } from 'lucide-react';
 import { storage } from './storage';
-import { sendTaskToN8n } from './n8n';
-import type { AutomationSettings, Category, Task, TaskImage, TaskStatus, User } from './types';
+import { sendNotificationTest, sendTaskToN8n } from './n8n';
+import type { AutomationSettings, Category, NotificationPreferences, Task, TaskImage, TaskStatus, User } from './types';
 import './automation.css';
 import { AutomationModal } from './AutomationModal';
+import { NotificationModal } from './NotificationModal';
 
 type TaskForm = { title:string; description:string; status:TaskStatus; dueDate:string; categoryId:string; images:TaskImage[] };
 const emptyForm:TaskForm={title:'',description:'',status:'pending',dueDate:'',categoryId:'',images:[]};
@@ -18,7 +19,9 @@ export default function App(){
   const [filter,setFilter]=useState('all'); const [search,setSearch]=useState(''); const [statusFilter,setStatusFilter]=useState<'all'|TaskStatus>('all');
   const [open,setOpen]=useState(false); const [editing,setEditing]=useState<Task|null>(null); const [form,setForm]=useState<TaskForm>(emptyForm); const [catOpen,setCatOpen]=useState(false); const [mobile,setMobile]=useState(false);
   const [automation,setAutomation]=useState<AutomationSettings>(()=>storage.getAutomation()); const [automationOpen,setAutomationOpen]=useState(false); const [automationBusy,setAutomationBusy]=useState(false); const [automationMessage,setAutomationMessage]=useState(''); const [automationError,setAutomationError]=useState(false);
-  useEffect(()=>storage.saveTasks(tasks),[tasks]); useEffect(()=>storage.saveCategories(categories),[categories]);
+  const [notifications,setNotifications]=useState<NotificationPreferences>(()=>storage.getNotifications(storage.getUser()?.email)); const [notificationDraft,setNotificationDraft]=useState<NotificationPreferences>(notifications); const [notificationsOpen,setNotificationsOpen]=useState(false); const [notificationBusy,setNotificationBusy]=useState(false); const [notificationMessage,setNotificationMessage]=useState('');
+  useEffect(()=>storage.saveTasks(tasks),[tasks]); useEffect(()=>storage.saveCategories(categories),[categories]); useEffect(()=>storage.saveNotifications(notifications),[notifications]);
+  useEffect(()=>{if(user&&!notifications.emailAddress){const next={...notifications,emailAddress:user.email};setNotifications(next);setNotificationDraft(next)}},[user,notifications]);
   const filtered=useMemo(()=>tasks.filter(t=>(filter==='all'||t.categoryId===filter)&&(statusFilter==='all'||t.status===statusFilter)&&(t.title+' '+t.description).toLowerCase().includes(search.toLowerCase())),[tasks,filter,statusFilter,search]);
   const stats={all:tasks.length,pending:tasks.filter(t=>t.status==='pending').length,progress:tasks.filter(t=>t.status==='in_progress').length,done:tasks.filter(t=>t.status==='completed').length};
   const focusTasks=useMemo(()=>tasks.filter(t=>t.status!=='completed').map(task=>{
@@ -32,8 +35,11 @@ export default function App(){
   // changes the hook order and React leaves the interface in a broken state.
   if(!user) return <Login onLogin={(u)=>{storage.saveUser(u);setUser(u)}}/>;
 
-  const automateDay=async()=>{if(!automation.enabled||!automation.webhookUrl){setAutomationError(true);setAutomationMessage('Activá la conexión con n8n desde el engranaje.');return;}setAutomationBusy(true);setAutomationError(false);setAutomationMessage('');try{const results=await Promise.all(focusTasks.map(({task})=>sendTaskToN8n(task,categories.find(c=>c.id===task.categoryId),user,automation)));const ids=new Set(focusTasks.map(item=>item.task.id));setTasks(current=>current.map(task=>ids.has(task.id)&&task.status==='pending'?{...task,status:'in_progress'}:task));const critical=results.filter(result=>result.priority==='critical'||result.priority==='high').length;setAutomationMessage(`${results.length} tareas priorizadas${critical?` · ${critical} urgentes`:''}`);}catch(error){setAutomationError(true);setAutomationMessage(error instanceof Error?error.message:'No se pudo conectar con n8n.');}finally{setAutomationBusy(false)}};
+  const automateDay=async()=>{if(!automation.enabled||!automation.webhookUrl){setAutomationError(true);setAutomationMessage('Activá la conexión con n8n desde el engranaje.');return;}setAutomationBusy(true);setAutomationError(false);setAutomationMessage('');try{const results=await Promise.all(focusTasks.map(({task})=>sendTaskToN8n(task,categories.find(c=>c.id===task.categoryId),user,automation,notifications)));const ids=new Set(focusTasks.map(item=>item.task.id));setTasks(current=>current.map(task=>ids.has(task.id)&&task.status==='pending'?{...task,status:'in_progress'}:task));const critical=results.filter(result=>result.priority==='critical'||result.priority==='high').length;const delivered=results.filter(result=>result.delivery?.email==='sent'||result.delivery?.telegram==='sent').length;setAutomationMessage(`${results.length} tareas priorizadas${critical?` · ${critical} urgentes`:''}${delivered?` · ${delivered} notificadas`:''}`);}catch(error){setAutomationError(true);setAutomationMessage(error instanceof Error?error.message:'No se pudo conectar con n8n.');}finally{setAutomationBusy(false)}};
   const saveAutomation=(settings:AutomationSettings)=>{storage.saveAutomation(settings);setAutomation(settings);setAutomationError(false);setAutomationMessage('Conexión actualizada');setAutomationOpen(false);};
+  const openNotifications=()=>{setNotificationDraft(notifications);setNotificationMessage('');setNotificationsOpen(true)};
+  const saveNotifications=()=>{if(notificationDraft.emailEnabled&&!notificationDraft.emailAddress.trim()){setNotificationMessage('Ingresá un email de destino válido.');return}setNotifications(notificationDraft);setNotificationMessage('Preferencias guardadas.');setNotificationsOpen(false)};
+  const testNotifications=async()=>{setNotificationBusy(true);setNotificationMessage('');try{const result=await sendNotificationTest(user,automation,notificationDraft);const email=result.delivery?.email??'not_configured';const telegram=result.delivery?.telegram??'not_configured';setNotificationMessage(`Email: ${email} · Telegram: ${telegram}`)}catch(error){setNotificationMessage(error instanceof Error?error.message:'No se pudo ejecutar la prueba.')}finally{setNotificationBusy(false)}};
   const openNew=()=>{setEditing(null);setForm(emptyForm);setOpen(true)};
   const openEdit=(t:Task)=>{setEditing(t);setForm({title:t.title,description:t.description,status:t.status,dueDate:t.dueDate,categoryId:t.categoryId??'',images:t.images});setOpen(true)};
   const submit=()=>{if(!form.title.trim())return; if(editing){setTasks(v=>v.map(t=>t.id===editing.id?{...t,...form,categoryId:form.categoryId||null}:t));}else{setTasks(v=>[{id:uid(),...form,categoryId:form.categoryId||null,createdAt:new Date().toISOString()},...v]);}setOpen(false)};
@@ -53,7 +59,7 @@ export default function App(){
       <div className="nav-section categories"><div className="section-head"><p>CATEGORÍAS</p><button aria-label="Administrar categorías" onClick={()=>setCatOpen(true)}><Plus/></button></div>
         {categories.map(c=><button key={c.id} className={`nav-item ${filter===c.id?'selected':''}`} onClick={()=>{setFilter(c.id);setStatusFilter('all');setMobile(false)}}><i style={{background:c.color}}/>{c.name}<span>{tasks.filter(t=>t.categoryId===c.id).length}</span></button>)}
       </div>
-      <div className="sidebar-bottom"><div className="avatar">{user.name.slice(0,2).toUpperCase()}</div><div><strong>{user.name}</strong><small>{user.email}</small></div><button aria-label="Cerrar sesión" onClick={()=>{storage.saveUser(null);setUser(null)}}><LogOut/></button></div>
+      <div className="sidebar-bottom"><div className="avatar">{user.name.slice(0,2).toUpperCase()}</div><div><strong>{user.name}</strong><small>{user.email}</small></div><button aria-label="Configurar notificaciones" title="Notificaciones" onClick={openNotifications}><Bell/></button><button aria-label="Cerrar sesión" title="Cerrar sesión" onClick={()=>{storage.saveUser(null);setUser(null)}}><LogOut/></button></div>
     </aside>
     {mobile&&<div className="overlay" onClick={()=>setMobile(false)}/>}
     <main className="main">
@@ -73,6 +79,7 @@ export default function App(){
     {open&&<TaskModal form={form} setForm={setForm} categories={categories} editing={!!editing} onClose={()=>setOpen(false)} onSubmit={submit}/>} 
     {catOpen&&<CategoryModal categories={categories} onAdd={addCategory} onDelete={removeCategory} onClose={()=>setCatOpen(false)}/>} 
     {automationOpen&&<AutomationModal settings={automation} message={automationMessage} onSave={saveAutomation} onClose={()=>setAutomationOpen(false)}/>}
+    {notificationsOpen&&<NotificationModal draft={notificationDraft} setDraft={setNotificationDraft} busy={notificationBusy} message={notificationMessage} onSave={saveNotifications} onTest={testNotifications} onClose={()=>setNotificationsOpen(false)}/>}
   </div>
 }
 

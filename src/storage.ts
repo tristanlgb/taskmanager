@@ -1,9 +1,10 @@
-import type { AutomationSettings, Category, Task, User } from './types';
+import type { AutomationSettings, Category, NotificationPreferences, Task, User } from './types';
 
 const TASKS_KEY = 'taskflow.tasks.v2';
 const CATEGORIES_KEY = 'taskflow.categories.v2';
 const USER_KEY = 'taskflow.user';
 const AUTOMATION_KEY = 'taskflow.automation.v1';
+const NOTIFICATIONS_KEY = 'taskflow.notifications.v1';
 const dateFromNow = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 const seedCategories: Category[] = [
@@ -40,4 +41,9 @@ export const storage = {
     return saved.webhookUrl ? saved : { webhookUrl, enabled: true };
   },
   saveAutomation: (settings: AutomationSettings) => localStorage.setItem(AUTOMATION_KEY, JSON.stringify(settings)),
+  getNotifications: (email = '') => read<NotificationPreferences>(NOTIFICATIONS_KEY, {
+    emailEnabled: false, emailAddress: email, telegramEnabled: false, telegramConnected: false,
+    urgentAlerts: true, dueAlerts: true, dailySummary: false, advanceHours: 24, dailyTime: '09:00',
+  }),
+  saveNotifications: (settings: NotificationPreferences) => localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(settings)),
 };
