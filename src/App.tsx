@@ -19,8 +19,6 @@ export default function App(){
   const [open,setOpen]=useState(false); const [editing,setEditing]=useState<Task|null>(null); const [form,setForm]=useState<TaskForm>(emptyForm); const [catOpen,setCatOpen]=useState(false); const [mobile,setMobile]=useState(false);
   const [automation,setAutomation]=useState<AutomationSettings>(()=>storage.getAutomation()); const [automationOpen,setAutomationOpen]=useState(false); const [automationBusy,setAutomationBusy]=useState(false); const [automationMessage,setAutomationMessage]=useState(''); const [automationError,setAutomationError]=useState(false);
   useEffect(()=>storage.saveTasks(tasks),[tasks]); useEffect(()=>storage.saveCategories(categories),[categories]);
-  if(!user) return <Login onLogin={(u)=>{storage.saveUser(u);setUser(u)}}/>;
-
   const filtered=useMemo(()=>tasks.filter(t=>(filter==='all'||t.categoryId===filter)&&(statusFilter==='all'||t.status===statusFilter)&&(t.title+' '+t.description).toLowerCase().includes(search.toLowerCase())),[tasks,filter,statusFilter,search]);
   const stats={all:tasks.length,pending:tasks.filter(t=>t.status==='pending').length,progress:tasks.filter(t=>t.status==='in_progress').length,done:tasks.filter(t=>t.status==='completed').length};
   const focusTasks=useMemo(()=>tasks.filter(t=>t.status!=='completed').map(task=>{
@@ -29,6 +27,11 @@ export default function App(){
     return {task,days,score};
   }).sort((a,b)=>b.score-a.score||a.days-b.days).slice(0,3),[tasks]);
   const urgentCount=focusTasks.filter(item=>item.days<=2).length;
+
+  // Keep every hook above this conditional return. Otherwise logging in or out
+  // changes the hook order and React leaves the interface in a broken state.
+  if(!user) return <Login onLogin={(u)=>{storage.saveUser(u);setUser(u)}}/>;
+
   const automateDay=async()=>{if(!automation.enabled||!automation.webhookUrl){setAutomationError(true);setAutomationMessage('Activá la conexión con n8n desde el engranaje.');return;}setAutomationBusy(true);setAutomationError(false);setAutomationMessage('');try{const results=await Promise.all(focusTasks.map(({task})=>sendTaskToN8n(task,categories.find(c=>c.id===task.categoryId),user,automation)));const ids=new Set(focusTasks.map(item=>item.task.id));setTasks(current=>current.map(task=>ids.has(task.id)&&task.status==='pending'?{...task,status:'in_progress'}:task));const critical=results.filter(result=>result.priority==='critical'||result.priority==='high').length;setAutomationMessage(`${results.length} tareas priorizadas${critical?` · ${critical} urgentes`:''}`);}catch(error){setAutomationError(true);setAutomationMessage(error instanceof Error?error.message:'No se pudo conectar con n8n.');}finally{setAutomationBusy(false)}};
   const saveAutomation=(settings:AutomationSettings)=>{storage.saveAutomation(settings);setAutomation(settings);setAutomationError(false);setAutomationMessage('Conexión actualizada');setAutomationOpen(false);};
   const openNew=()=>{setEditing(null);setForm(emptyForm);setOpen(true)};
