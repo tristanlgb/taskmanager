@@ -1,8 +1,9 @@
-import type { Category, Task, User } from './types';
+import type { AutomationSettings, Category, Task, User } from './types';
 
 const TASKS_KEY = 'taskflow.tasks.v2';
 const CATEGORIES_KEY = 'taskflow.categories.v2';
 const USER_KEY = 'taskflow.user';
+const AUTOMATION_KEY = 'taskflow.automation.v1';
 const dateFromNow = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 const seedCategories: Category[] = [
@@ -33,4 +34,6 @@ export const storage = {
   saveCategories: (categories: Category[]) => localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories)),
   getUser: () => read<User | null>(USER_KEY, null),
   saveUser: (user: User | null) => user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY),
+  getAutomation: () => read<AutomationSettings>(AUTOMATION_KEY, { webhookUrl: import.meta.env.VITE_N8N_WEBHOOK_URL || '', enabled: false }),
+  saveAutomation: (settings: AutomationSettings) => localStorage.setItem(AUTOMATION_KEY, JSON.stringify(settings)),
 };

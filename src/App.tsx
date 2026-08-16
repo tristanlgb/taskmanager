@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Archive, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Filter, ImagePlus, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Filter, ImagePlus, LayoutDashboard, LoaderCircle, LogOut, Menu, Pencil, Plus, Search, Settings2, Trash2, X, Zap } from 'lucide-react';
 import { storage } from './storage';
-import type { Category, Task, TaskImage, TaskStatus, User } from './types';
+import { sendTaskToN8n } from './n8n';
+import type { AutomationSettings, Category, Task, TaskImage, TaskStatus, User } from './types';
+import './automation.css';
+import { AutomationModal } from './AutomationModal';
 
 type TaskForm = { title:string; description:string; status:TaskStatus; dueDate:string; categoryId:string; images:TaskImage[] };
 const emptyForm:TaskForm={title:'',description:'',status:'pending',dueDate:'',categoryId:'',images:[]};
@@ -14,11 +17,20 @@ export default function App(){
   const [categories,setCategories]=useState<Category[]>(()=>storage.getCategories());
   const [filter,setFilter]=useState('all'); const [search,setSearch]=useState(''); const [statusFilter,setStatusFilter]=useState<'all'|TaskStatus>('all');
   const [open,setOpen]=useState(false); const [editing,setEditing]=useState<Task|null>(null); const [form,setForm]=useState<TaskForm>(emptyForm); const [catOpen,setCatOpen]=useState(false); const [mobile,setMobile]=useState(false);
+  const [automation,setAutomation]=useState<AutomationSettings>(()=>storage.getAutomation()); const [automationOpen,setAutomationOpen]=useState(false); const [automationBusy,setAutomationBusy]=useState(false); const [automationMessage,setAutomationMessage]=useState('');
   useEffect(()=>storage.saveTasks(tasks),[tasks]); useEffect(()=>storage.saveCategories(categories),[categories]);
   if(!user) return <Login onLogin={(u)=>{storage.saveUser(u);setUser(u)}}/>;
 
   const filtered=useMemo(()=>tasks.filter(t=>(filter==='all'||t.categoryId===filter)&&(statusFilter==='all'||t.status===statusFilter)&&(t.title+' '+t.description).toLowerCase().includes(search.toLowerCase())),[tasks,filter,statusFilter,search]);
   const stats={all:tasks.length,pending:tasks.filter(t=>t.status==='pending').length,progress:tasks.filter(t=>t.status==='in_progress').length,done:tasks.filter(t=>t.status==='completed').length};
+  const focusTasks=useMemo(()=>tasks.filter(t=>t.status!=='completed').map(task=>{
+    const days=task.dueDate?Math.ceil((new Date(task.dueDate+'T23:59:59').getTime()-Date.now())/86400000):999;
+    const score=(task.status==='in_progress'?25:0)+(days<0?100:days===0?80:days<=2?60:days<=7?30:0);
+    return {task,days,score};
+  }).sort((a,b)=>b.score-a.score||a.days-b.days).slice(0,3),[tasks]);
+  const urgentCount=focusTasks.filter(item=>item.days<=2).length;
+  const automateDay=async()=>{const ids=new Set(focusTasks.map(item=>item.task.id));setTasks(current=>current.map(task=>ids.has(task.id)&&task.status==='pending'?{...task,status:'in_progress'}:task));if(!automation.enabled||!automation.webhookUrl){setAutomationMessage('Plan local aplicado. Conectá n8n para ejecutar IA, registro y alertas.');setAutomationOpen(true);return;}setAutomationBusy(true);setAutomationMessage('');try{const results=await Promise.all(focusTasks.map(({task})=>sendTaskToN8n(task,categories.find(c=>c.id===task.categoryId),user,automation)));const critical=results.filter(r=>r.priority==='critical'||r.priority==='high').length;setAutomationMessage(`n8n procesó ${results.length} tareas${critical?` y detectó ${critical} prioritarias`:''}.`);}catch(error){setAutomationMessage(error instanceof Error?error.message:'No se pudo conectar con n8n.');}finally{setAutomationBusy(false);setAutomationOpen(true)}};
+  const saveAutomation=(settings:AutomationSettings)=>{storage.saveAutomation(settings);setAutomation(settings);setAutomationMessage('Configuración guardada.');};
   const openNew=()=>{setEditing(null);setForm(emptyForm);setOpen(true)};
   const openEdit=(t:Task)=>{setEditing(t);setForm({title:t.title,description:t.description,status:t.status,dueDate:t.dueDate,categoryId:t.categoryId??'',images:t.images});setOpen(true)};
   const submit=()=>{if(!form.title.trim())return; if(editing){setTasks(v=>v.map(t=>t.id===editing.id?{...t,...form,categoryId:form.categoryId||null}:t));}else{setTasks(v=>[{id:uid(),...form,categoryId:form.categoryId||null,createdAt:new Date().toISOString()},...v]);}setOpen(false)};
@@ -41,11 +53,18 @@ export default function App(){
       <section className="stats">
         <Stat icon={<Archive/>} label="Total" value={stats.all}/><Stat icon={<Circle/>} label="Pendientes" value={stats.pending}/><Stat icon={<Clock3/>} label="En progreso" value={stats.progress}/><Stat icon={<CheckCircle2/>} label="Completadas" value={stats.done}/>
       </section>
+      <section className="automation-panel">
+        <div className="automation-icon"><Zap/></div>
+        <div className="automation-copy"><span>ASISTENTE AUTOMÁTICO</span><h2>Plan de foco sugerido</h2><p>{focusTasks.length?`Ordenamos tus próximas ${focusTasks.length} tareas según vencimiento y estado${urgentCount?`; ${urgentCount} requieren atención pronto`:''}.`:'Creá tareas con fecha y el asistente armará tu plan diario.'}</p></div>
+        <div className="focus-list">{focusTasks.map(({task,days})=><div key={task.id}><strong>{task.title}</strong><small className={days<0?'overdue':''}>{days<0?<><AlertTriangle/>Vencida hace {Math.abs(days)}d</>:days===0?'Vence hoy':days===999?'Sin fecha':`En ${days}d`}</small></div>)}</div>
+        <div className="automation-actions"><button className="automation-settings" onClick={()=>setAutomationOpen(true)} title="Configurar n8n"><Settings2/></button><button className="automation-button" disabled={!focusTasks.length||automationBusy} onClick={automateDay}>{automationBusy?<LoaderCircle className="spin"/>:<Zap/>}{automationBusy?'Procesando…':'Automatizar jornada'}</button></div>
+      </section>
       <section className="toolbar"><div className="search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar tareas..."/></div><div className="select-wrap"><Filter/><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Todos los estados</option><option value="pending">Pendientes</option><option value="in_progress">En progreso</option><option value="completed">Completadas</option></select><ChevronDown/></div></section>
       <section className="task-grid">{filtered.length?filtered.map(t=><TaskCard key={t.id} task={t} category={categories.find(c=>c.id===t.categoryId)} onEdit={()=>openEdit(t)} onDelete={()=>remove(t.id)} onStatus={(s)=>setTasks(v=>v.map(x=>x.id===t.id?{...x,status:s}:x))}/>):<div className="empty"><CheckCircle2/><h3>No hay tareas</h3><p>Probá cambiando los filtros o creá una tarea nueva.</p><button className="primary" onClick={openNew}><Plus/>Crear tarea</button></div>}</section>
     </main>
     {open&&<TaskModal form={form} setForm={setForm} categories={categories} editing={!!editing} onClose={()=>setOpen(false)} onSubmit={submit}/>} 
     {catOpen&&<CategoryModal categories={categories} onAdd={addCategory} onDelete={removeCategory} onClose={()=>setCatOpen(false)}/>} 
+    {automationOpen&&<AutomationModal settings={automation} message={automationMessage} onSave={saveAutomation} onClose={()=>setAutomationOpen(false)}/>}
   </div>
 }
 
