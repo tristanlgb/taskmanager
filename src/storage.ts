@@ -34,6 +34,6 @@ export const storage = {
   saveCategories: (categories: Category[]) => localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories)),
   getUser: () => read<User | null>(USER_KEY, null),
   saveUser: (user: User | null) => user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY),
-  getAutomation: () => read<AutomationSettings>(AUTOMATION_KEY, { webhookUrl: import.meta.env.VITE_N8N_WEBHOOK_URL || '', enabled: false }),
+  getAutomation: () => { const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://tristanlgb.app.n8n.cloud/webhook/taskflow-prioritize'; return read<AutomationSettings>(AUTOMATION_KEY, { webhookUrl, enabled: true }); },
   saveAutomation: (settings: AutomationSettings) => localStorage.setItem(AUTOMATION_KEY, JSON.stringify(settings)),
 };

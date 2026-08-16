@@ -1,14 +1,11 @@
-# Automatización de TaskFlow con n8n
+# Automatización real de TaskFlow con n8n
 
-Recibe tareas desde TaskFlow, usa IA para calcular prioridad y próximos pasos, registra cada análisis en Google Sheets y envía alertas por Telegram y Gmail cuando una tarea es urgente.
+El workflow recibe tareas desde TaskFlow, calcula prioridad y próximos pasos dentro de n8n y devuelve un resultado estructurado a la aplicación.
 
-## Activación
+## Flujo activo
 
-1. En n8n, usá **Import from file** con `taskflow-automation.json`.
-2. Asigná credenciales válidas a OpenAI, Google Sheets, Telegram y Gmail.
-3. Creá una hoja `Tareas` con: `Fecha`, `Tarea`, `Responsable`, `Prioridad`, `Puntaje` y `Resumen`.
-4. Reemplazá `REEMPLAZAR_SPREADSHEET_ID` y `REEMPLAZAR_CHAT_ID`.
-5. Probá, activá el workflow y copiá la URL de producción del webhook.
-6. Pegala en el engranaje del panel automático de TaskFlow y activá la conexión.
+1. `TaskFlow Webhook` recibe la tarea por `POST`.
+2. `Calcular prioridad en n8n` evalúa estado y vencimiento.
+3. `Responder a TaskFlow` devuelve prioridad, puntaje, resumen y próximos pasos.
 
-Las credenciales permanecen en n8n. TaskFlow solo transmite los datos de las tareas seleccionadas cuando el usuario pulsa **Automatizar jornada**.
+El workflow no necesita credenciales externas. La URL puede reemplazarse con `VITE_N8N_WEBHOOK_URL` o desde la configuración de TaskFlow.
