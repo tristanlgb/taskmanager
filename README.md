@@ -1,6 +1,6 @@
 # TaskFlow — React + TypeScript
 
-Conversión del proyecto Laravel Task Manager a una SPA moderna en React + TypeScript.
+
 
 ## Funcionalidades
 
