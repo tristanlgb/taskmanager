@@ -1,93 +1,141 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Archive, Bell, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Filter, ImagePlus, LayoutDashboard, LoaderCircle, LogOut, Menu, Pencil, Plus, Search, Settings2, Trash2, X, Zap } from 'lucide-react';
-import { storage } from './storage';
-import { sendNotificationTest, sendTaskToN8n } from './n8n';
-import type { AutomationSettings, Category, NotificationPreferences, Task, TaskImage, TaskStatus, User } from './types';
-import './automation.css';
+import { Archive, CheckCircle2, ChevronDown, Circle, Clock3, Filter, LoaderCircle, Menu, Plus, Search, Settings2, Zap } from 'lucide-react';
 import { AutomationModal } from './AutomationModal';
 import { NotificationModal } from './NotificationModal';
+import { CategoryModal } from './components/CategoryModal';
+import { Login } from './components/Login';
+import { Sidebar } from './components/Sidebar';
+import { TaskCard } from './components/TaskCard';
+import { emptyTaskForm, TaskModal, type TaskForm } from './components/TaskModal';
+import { sendNotificationTest, sendTaskToN8n } from './n8n';
+import { storage } from './storage';
+import type { AutomationSettings, Category, NotificationPreferences, Task, TaskStatus, User } from './types';
+import { createId, formatDueDays, getFocusTasks } from './utils/task';
+import './automation.css';
 
-type TaskForm = { title:string; description:string; status:TaskStatus; dueDate:string; categoryId:string; images:TaskImage[] };
-const emptyForm:TaskForm={title:'',description:'',status:'pending',dueDate:'',categoryId:'',images:[]};
-const uid=()=>crypto.randomUUID();
-const labels:Record<TaskStatus,string>={pending:'Pendiente',in_progress:'En progreso',completed:'Completada'};
+type StatusFilter = 'all' | TaskStatus;
+const categoryColors = ['#8b5cf6', '#06b6d4', '#f97316', '#ec4899', '#22c55e'];
 
-export default function App(){
-  const [user,setUser]=useState<User|null>(()=>storage.getUser());
-  const [tasks,setTasks]=useState<Task[]>(()=>storage.getTasks());
-  const [categories,setCategories]=useState<Category[]>(()=>storage.getCategories());
-  const [filter,setFilter]=useState('all'); const [search,setSearch]=useState(''); const [statusFilter,setStatusFilter]=useState<'all'|TaskStatus>('all');
-  const [open,setOpen]=useState(false); const [editing,setEditing]=useState<Task|null>(null); const [form,setForm]=useState<TaskForm>(emptyForm); const [catOpen,setCatOpen]=useState(false); const [mobile,setMobile]=useState(false);
-  const [automation,setAutomation]=useState<AutomationSettings>(()=>storage.getAutomation()); const [automationOpen,setAutomationOpen]=useState(false); const [automationBusy,setAutomationBusy]=useState(false); const [automationMessage,setAutomationMessage]=useState(''); const [automationError,setAutomationError]=useState(false);
-  const [notifications,setNotifications]=useState<NotificationPreferences>(()=>storage.getNotifications(storage.getUser()?.email)); const [notificationDraft,setNotificationDraft]=useState<NotificationPreferences>(notifications); const [notificationsOpen,setNotificationsOpen]=useState(false); const [notificationBusy,setNotificationBusy]=useState(false); const [notificationMessage,setNotificationMessage]=useState('');
-  useEffect(()=>storage.saveTasks(tasks),[tasks]); useEffect(()=>storage.saveCategories(categories),[categories]); useEffect(()=>storage.saveNotifications(notifications),[notifications]);
-  useEffect(()=>{if(user&&!notifications.emailAddress){const next={...notifications,emailAddress:user.email};setNotifications(next);setNotificationDraft(next)}},[user,notifications]);
-  const filtered=useMemo(()=>tasks.filter(t=>(filter==='all'||t.categoryId===filter)&&(statusFilter==='all'||t.status===statusFilter)&&(t.title+' '+t.description).toLowerCase().includes(search.toLowerCase())),[tasks,filter,statusFilter,search]);
-  const stats={all:tasks.length,pending:tasks.filter(t=>t.status==='pending').length,progress:tasks.filter(t=>t.status==='in_progress').length,done:tasks.filter(t=>t.status==='completed').length};
-  const focusTasks=useMemo(()=>tasks.filter(t=>t.status!=='completed').map(task=>{
-    const days=task.dueDate?Math.ceil((new Date(task.dueDate+'T23:59:59').getTime()-Date.now())/86400000):999;
-    const score=(task.status==='in_progress'?25:0)+(days<0?100:days===0?80:days<=2?60:days<=7?30:0);
-    return {task,days,score};
-  }).sort((a,b)=>b.score-a.score||a.days-b.days).slice(0,3),[tasks]);
-  const urgentCount=focusTasks.filter(item=>item.days<=2).length;
+export default function App() {
+  const [user, setUser] = useState<User | null>(() => storage.getUser());
+  const [tasks, setTasks] = useState<Task[]>(() => storage.getTasks());
+  const [categories, setCategories] = useState<Category[]>(() => storage.getCategories());
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Task | null>(null);
+  const [form, setForm] = useState<TaskForm>(emptyTaskForm);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [automation, setAutomation] = useState<AutomationSettings>(() => storage.getAutomation());
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [automationBusy, setAutomationBusy] = useState(false);
+  const [automationMessage, setAutomationMessage] = useState('');
+  const [automationError, setAutomationError] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationPreferences>(() => storage.getNotifications(storage.getUser()?.email));
+  const [notificationDraft, setNotificationDraft] = useState(notifications);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
 
-  // Keep every hook above this conditional return. Otherwise logging in or out
-  // changes the hook order and React leaves the interface in a broken state.
-  if(!user) return <Login onLogin={(u)=>{storage.saveUser(u);setUser(u)}}/>;
+  useEffect(() => storage.saveTasks(tasks), [tasks]);
+  useEffect(() => storage.saveCategories(categories), [categories]);
+  useEffect(() => storage.saveNotifications(notifications), [notifications]);
+  useEffect(() => {
+    if (!user || notifications.emailAddress) return;
+    const next = { ...notifications, emailAddress: user.email };
+    setNotifications(next);
+    setNotificationDraft(next);
+  }, [user, notifications]);
 
-  const automateDay=async()=>{if(!automation.enabled||!automation.webhookUrl){setAutomationError(true);setAutomationMessage('Activá la conexión con n8n desde el engranaje.');return;}setAutomationBusy(true);setAutomationError(false);setAutomationMessage('');try{const results=await Promise.all(focusTasks.map(({task})=>sendTaskToN8n(task,categories.find(c=>c.id===task.categoryId),user,automation,notifications)));const ids=new Set(focusTasks.map(item=>item.task.id));setTasks(current=>current.map(task=>ids.has(task.id)&&task.status==='pending'?{...task,status:'in_progress'}:task));const critical=results.filter(result=>result.priority==='critical'||result.priority==='high').length;const delivered=results.filter(result=>result.delivery?.email==='sent'||result.delivery?.telegram==='sent').length;setAutomationMessage(`${results.length} tareas priorizadas${critical?` · ${critical} urgentes`:''}${delivered?` · ${delivered} notificadas`:''}`);}catch(error){setAutomationError(true);setAutomationMessage(error instanceof Error?error.message:'No se pudo conectar con n8n.');}finally{setAutomationBusy(false)}};
-  const saveAutomation=(settings:AutomationSettings)=>{storage.saveAutomation(settings);setAutomation(settings);setAutomationError(false);setAutomationMessage('Conexión actualizada');setAutomationOpen(false);};
-  const openNotifications=()=>{setNotificationDraft(notifications);setNotificationMessage('');setNotificationsOpen(true)};
-  const saveNotifications=()=>{if(notificationDraft.emailEnabled&&!notificationDraft.emailAddress.trim()){setNotificationMessage('Ingresá un email de destino válido.');return}setNotifications(notificationDraft);setNotificationMessage('Preferencias guardadas.');setNotificationsOpen(false)};
-  const testNotifications=async()=>{setNotificationBusy(true);setNotificationMessage('');try{const result=await sendNotificationTest(user,automation,notificationDraft);const email=result.delivery?.email??'not_configured';const telegram=result.delivery?.telegram??'not_configured';setNotificationMessage(`Email: ${email} · Telegram: ${telegram}`)}catch(error){setNotificationMessage(error instanceof Error?error.message:'No se pudo ejecutar la prueba.')}finally{setNotificationBusy(false)}};
-  const openNew=()=>{setEditing(null);setForm(emptyForm);setOpen(true)};
-  const openEdit=(t:Task)=>{setEditing(t);setForm({title:t.title,description:t.description,status:t.status,dueDate:t.dueDate,categoryId:t.categoryId??'',images:t.images});setOpen(true)};
-  const submit=()=>{if(!form.title.trim())return; if(editing){setTasks(v=>v.map(t=>t.id===editing.id?{...t,...form,categoryId:form.categoryId||null}:t));}else{setTasks(v=>[{id:uid(),...form,categoryId:form.categoryId||null,createdAt:new Date().toISOString()},...v]);}setOpen(false)};
-  const remove=(id:string)=>{if(confirm('¿Eliminar esta tarea?')) setTasks(v=>v.filter(t=>t.id!==id));};
-  const addCategory=(name:string)=>{const n=name.trim();if(!n)return; const colors=['#8b5cf6','#06b6d4','#f97316','#ec4899','#22c55e']; setCategories(v=>[...v,{id:uid(),name:n,color:colors[v.length%colors.length]}]);};
-  const removeCategory=(id:string)=>{setCategories(v=>v.filter(c=>c.id!==id));setTasks(v=>v.map(t=>t.categoryId===id?{...t,categoryId:null}:t));if(filter===id)setFilter('all')};
+  const filteredTasks = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('es');
+    return tasks.filter((task) => (filter === 'all' || task.categoryId === filter)
+      && (statusFilter === 'all' || task.status === statusFilter)
+      && `${task.title} ${task.description}`.toLocaleLowerCase('es').includes(query));
+  }, [tasks, filter, statusFilter, search]);
+  const focusTasks = useMemo(() => getFocusTasks(tasks), [tasks]);
+
+  if (!user) return <Login onLogin={(next) => { storage.saveUser(next); setUser(next); }} />;
+
+  const openNewTask = () => { setEditing(null); setForm(emptyTaskForm); setTaskModalOpen(true); };
+  const openEditTask = (task: Task) => {
+    setEditing(task);
+    setForm({ title: task.title, description: task.description, status: task.status, dueDate: task.dueDate, categoryId: task.categoryId ?? '', images: task.images });
+    setTaskModalOpen(true);
+  };
+  const saveTask = () => {
+    const title = form.title.trim();
+    if (!title) return;
+    const values = { ...form, title, description: form.description.trim(), categoryId: form.categoryId || null };
+    setTasks((current) => editing
+      ? current.map((task) => task.id === editing.id ? { ...task, ...values } : task)
+      : [{ id: createId(), ...values, createdAt: new Date().toISOString() }, ...current]);
+    setTaskModalOpen(false);
+  };
+  const removeTask = (id: string) => { if (confirm('¿Eliminar esta tarea?')) setTasks((current) => current.filter((task) => task.id !== id)); };
+  const addCategory = (name: string) => {
+    const cleanName = name.trim();
+    if (cleanName) setCategories((current) => [...current, { id: createId(), name: cleanName, color: categoryColors[current.length % categoryColors.length] }]);
+  };
+  const removeCategory = (id: string) => {
+    setCategories((current) => current.filter((category) => category.id !== id));
+    setTasks((current) => current.map((task) => task.categoryId === id ? { ...task, categoryId: null } : task));
+    if (filter === id) setFilter('all');
+  };
+  const openNotifications = () => { setNotificationDraft(notifications); setNotificationMessage(''); setNotificationsOpen(true); };
+  const saveNotifications = () => {
+    if (notificationDraft.emailEnabled && !notificationDraft.emailAddress.trim()) { setNotificationMessage('Ingresá un email de destino válido.'); return; }
+    setNotifications({ ...notificationDraft, emailAddress: notificationDraft.emailAddress.trim() });
+    setNotificationsOpen(false);
+  };
+  const testNotifications = async () => {
+    setNotificationBusy(true); setNotificationMessage('');
+    try {
+      const result = await sendNotificationTest(user, automation, notificationDraft);
+      setNotificationMessage(`Email: ${result.delivery?.email ?? 'not_configured'} · Telegram: ${result.delivery?.telegram ?? 'not_configured'}`);
+    } catch (error) { setNotificationMessage(error instanceof Error ? error.message : 'No se pudo ejecutar la prueba.'); }
+    finally { setNotificationBusy(false); }
+  };
+  const prioritizeTasks = async () => {
+    if (!automation.enabled || !automation.webhookUrl) { setAutomationError(true); setAutomationMessage('Activá la conexión con n8n desde el engranaje.'); return; }
+    setAutomationBusy(true); setAutomationError(false); setAutomationMessage('');
+    try {
+      const results = await Promise.all(focusTasks.map(({ task }) => sendTaskToN8n(task, categories.find((category) => category.id === task.categoryId), user, automation, notifications)));
+      const ids = new Set(focusTasks.map(({ task }) => task.id));
+      setTasks((current) => current.map((task) => ids.has(task.id) && task.status === 'pending' ? { ...task, status: 'in_progress' } : task));
+      const critical = results.filter((result) => result.priority === 'critical' || result.priority === 'high').length;
+      const delivered = results.filter((result) => result.delivery?.email === 'sent' || result.delivery?.telegram === 'sent').length;
+      setAutomationMessage(`${results.length} tareas priorizadas${critical ? ` · ${critical} urgentes` : ''}${delivered ? ` · ${delivered} notificadas` : ''}`);
+    } catch (error) { setAutomationError(true); setAutomationMessage(error instanceof Error ? error.message : 'No se pudo conectar con n8n.'); }
+    finally { setAutomationBusy(false); }
+  };
+
+  const stats = { all: tasks.length, pending: tasks.filter((task) => task.status === 'pending').length, progress: tasks.filter((task) => task.status === 'in_progress').length, done: tasks.filter((task) => task.status === 'completed').length };
+  const urgentCount = focusTasks.filter(({ days }) => days <= 2).length;
 
   return <div className="app-shell">
-    <aside className={`sidebar ${mobile?'show':''}`}>
-      <div className="brand"><div className="brand-mark"><CheckCircle2/></div><span>TaskFlow</span><button className="mobile-close" aria-label="Cerrar menú" onClick={()=>setMobile(false)}><X/></button></div>
-      <div className="nav-section"><p>ESPACIO DE TRABAJO</p>
-        <button className={`nav-item ${filter==='all'&&statusFilter==='all'?'active':''}`} onClick={()=>{setFilter('all');setStatusFilter('all');setMobile(false)}}><LayoutDashboard/>Todas las tareas<span>{stats.all}</span></button>
-        <button className={`nav-item ${filter==='all'&&statusFilter==='pending'?'active':''}`} onClick={()=>{setFilter('all');setStatusFilter('pending');setMobile(false)}}><Circle/>Tareas pendientes<span>{stats.pending}</span></button>
-        <button className={`nav-item ${filter==='all'&&statusFilter==='in_progress'?'active':''}`} onClick={()=>{setFilter('all');setStatusFilter('in_progress');setMobile(false)}}><Clock3/>En curso<span>{stats.progress}</span></button>
-        <button className={`nav-item ${filter==='all'&&statusFilter==='completed'?'active':''}`} onClick={()=>{setFilter('all');setStatusFilter('completed');setMobile(false)}}><CheckCircle2/>Completadas<span>{stats.done}</span></button>
-      </div>
-      <div className="nav-section categories"><div className="section-head"><p>CATEGORÍAS</p><button aria-label="Administrar categorías" onClick={()=>setCatOpen(true)}><Plus/></button></div>
-        {categories.map(c=><button key={c.id} className={`nav-item ${filter===c.id?'selected':''}`} onClick={()=>{setFilter(c.id);setStatusFilter('all');setMobile(false)}}><i style={{background:c.color}}/>{c.name}<span>{tasks.filter(t=>t.categoryId===c.id).length}</span></button>)}
-      </div>
-      <div className="sidebar-bottom"><div className="avatar">{user.name.slice(0,2).toUpperCase()}</div><div><strong>{user.name}</strong><small>{user.email}</small></div><button aria-label="Configurar notificaciones" title="Notificaciones" onClick={openNotifications}><Bell/></button><button aria-label="Cerrar sesión" title="Cerrar sesión" onClick={()=>{storage.saveUser(null);setUser(null)}}><LogOut/></button></div>
-    </aside>
-    {mobile&&<div className="overlay" onClick={()=>setMobile(false)}/>}
+    <Sidebar user={user} tasks={tasks} categories={categories} filter={filter} statusFilter={statusFilter} mobileOpen={mobileOpen} onFilter={(category, status) => { setFilter(category); setStatusFilter(status); }} onCategories={() => setCategoryModalOpen(true)} onNotifications={openNotifications} onLogout={() => { storage.saveUser(null); setUser(null); }} onClose={() => setMobileOpen(false)} />
     <main className="main">
-      <header><button className="menu" aria-label="Abrir menú" onClick={()=>setMobile(true)}><Menu/></button><div><h1>Mis tareas</h1><p>Organizá tu trabajo y mantené el foco.</p></div><button className="primary" onClick={openNew}><Plus/>Nueva tarea</button></header>
-      <section className="stats">
-        <Stat icon={<Archive/>} label="Total" value={stats.all}/><Stat icon={<Circle/>} label="Pendientes" value={stats.pending}/><Stat icon={<Clock3/>} label="En progreso" value={stats.progress}/><Stat icon={<CheckCircle2/>} label="Completadas" value={stats.done}/>
-      </section>
+      <header><button type="button" className="menu" aria-label="Abrir menú" onClick={() => setMobileOpen(true)}><Menu /></button><div><h1>Mis tareas</h1><p>Organizá tu trabajo y mantené el foco.</p></div><button type="button" className="primary" onClick={openNewTask}><Plus />Nueva tarea</button></header>
+      <section className="stats"><Stat icon={<Archive />} label="Total" value={stats.all} /><Stat icon={<Circle />} label="Pendientes" value={stats.pending} /><Stat icon={<Clock3 />} label="En progreso" value={stats.progress} /><Stat icon={<CheckCircle2 />} label="Completadas" value={stats.done} /></section>
       <section className="automation-panel" aria-label="Priorización automática">
-        <div className="automation-summary"><span className="automation-icon"><Zap/></span><div><strong>Prioridad automática</strong><small>{focusTasks.length?`${focusTasks.length} sugeridas${urgentCount?` · ${urgentCount} urgentes`:''}`:'Sin tareas para priorizar'}</small></div></div>
-        <div className="focus-list">{focusTasks.map(({task,days})=><span key={task.id} title={task.title}><strong>{task.title}</strong><small className={days<0?'overdue':''}>{days<0?`${Math.abs(days)}d vencida`:days===0?'Hoy':days===999?'Sin fecha':`${days}d`}</small></span>)}</div>
-        <div className="automation-actions"><button className="automation-settings" aria-label="Configurar n8n" onClick={()=>setAutomationOpen(true)}><Settings2/></button><button className="automation-button" disabled={!focusTasks.length||automationBusy} onClick={automateDay}>{automationBusy?<LoaderCircle className="spin"/>:<Zap/>}{automationBusy?'Procesando…':'Priorizar'}</button></div>
-        {automationMessage&&<p className={`automation-feedback ${automationError?'error':''}`} role="status">{automationMessage}</p>}
+        <div className="automation-summary"><span className="automation-icon"><Zap /></span><div><strong>Prioridad automática</strong><small>{focusTasks.length ? `${focusTasks.length} sugeridas${urgentCount ? ` · ${urgentCount} urgentes` : ''}` : 'Sin tareas para priorizar'}</small></div></div>
+        <div className="focus-list">{focusTasks.map(({ task, days }) => <span key={task.id} title={task.title}><strong>{task.title}</strong><small className={days < 0 ? 'overdue' : ''}>{formatDueDays(days)}</small></span>)}</div>
+        <div className="automation-actions"><button type="button" className="automation-settings" aria-label="Configurar n8n" onClick={() => setAutomationOpen(true)}><Settings2 /></button><button type="button" className="automation-button" disabled={!focusTasks.length || automationBusy} onClick={() => void prioritizeTasks()}>{automationBusy ? <LoaderCircle className="spin" /> : <Zap />}{automationBusy ? 'Procesando…' : 'Priorizar'}</button></div>
+        {automationMessage && <p className={`automation-feedback ${automationError ? 'error' : ''}`} role="status">{automationMessage}</p>}
       </section>
-      <section className="toolbar"><div className="search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar tareas..."/></div><div className="select-wrap"><Filter/><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Todos los estados</option><option value="pending">Pendientes</option><option value="in_progress">En progreso</option><option value="completed">Completadas</option></select><ChevronDown/></div></section>
-      <section className="task-grid">{filtered.length?filtered.map(t=><TaskCard key={t.id} task={t} category={categories.find(c=>c.id===t.categoryId)} onEdit={()=>openEdit(t)} onDelete={()=>remove(t.id)} onStatus={(s)=>setTasks(v=>v.map(x=>x.id===t.id?{...x,status:s}:x))}/>):<div className="empty"><CheckCircle2/><h3>No hay tareas</h3><p>Probá cambiando los filtros o creá una tarea nueva.</p><button className="primary" onClick={openNew}><Plus/>Crear tarea</button></div>}</section>
+      <section className="toolbar"><div className="search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar tareas..." /></div><div className="select-wrap"><Filter /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}><option value="all">Todos los estados</option><option value="pending">Pendientes</option><option value="in_progress">En progreso</option><option value="completed">Completadas</option></select><ChevronDown /></div></section>
+      <section className="task-grid">{filteredTasks.length ? filteredTasks.map((task) => <TaskCard key={task.id} task={task} category={categories.find((category) => category.id === task.categoryId)} onEdit={() => openEditTask(task)} onDelete={() => removeTask(task.id)} onStatus={(status) => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status } : item))} />) : <div className="empty"><CheckCircle2 /><h3>No hay tareas</h3><p>Probá cambiando los filtros o creá una tarea nueva.</p><button type="button" className="primary" onClick={openNewTask}><Plus />Crear tarea</button></div>}</section>
     </main>
-    {open&&<TaskModal form={form} setForm={setForm} categories={categories} editing={!!editing} onClose={()=>setOpen(false)} onSubmit={submit}/>} 
-    {catOpen&&<CategoryModal categories={categories} onAdd={addCategory} onDelete={removeCategory} onClose={()=>setCatOpen(false)}/>} 
-    {automationOpen&&<AutomationModal settings={automation} message={automationMessage} onSave={saveAutomation} onClose={()=>setAutomationOpen(false)}/>}
-    {notificationsOpen&&<NotificationModal draft={notificationDraft} setDraft={setNotificationDraft} busy={notificationBusy} message={notificationMessage} onSave={saveNotifications} onTest={testNotifications} onClose={()=>setNotificationsOpen(false)}/>}
-  </div>
+    {taskModalOpen && <TaskModal form={form} setForm={setForm} categories={categories} editing={Boolean(editing)} onClose={() => setTaskModalOpen(false)} onSubmit={saveTask} />}
+    {categoryModalOpen && <CategoryModal categories={categories} onAdd={addCategory} onDelete={removeCategory} onClose={() => setCategoryModalOpen(false)} />}
+    {automationOpen && <AutomationModal settings={automation} message={automationMessage} onSave={(settings) => { storage.saveAutomation(settings); setAutomation(settings); setAutomationError(false); setAutomationMessage('Conexión actualizada'); setAutomationOpen(false); }} onClose={() => setAutomationOpen(false)} />}
+    {notificationsOpen && <NotificationModal draft={notificationDraft} setDraft={setNotificationDraft} busy={notificationBusy} message={notificationMessage} onSave={saveNotifications} onTest={() => void testNotifications()} onClose={() => setNotificationsOpen(false)} />}
+  </div>;
 }
 
-function Login({onLogin}:{onLogin:(u:User)=>void}){const [name,setName]=useState('Tristan');const [email,setEmail]=useState('tristan@example.com');return <div className="login-page"><div className="login-card"><div className="brand login-brand"><div className="brand-mark"><CheckCircle2/></div><span>TaskFlow</span></div><h1>Bienvenido</h1><p>Tu espacio simple para organizar tareas, prioridades y proyectos.</p><label>Nombre<input value={name} onChange={e=>setName(e.target.value)}/></label><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><button className="primary wide" onClick={()=>name&&email&&onLogin({id:uid(),name,email})}>Ingresar</button><small>Demo local · Los datos se guardan en tu navegador.</small></div></div>}
-
-function Stat({icon,label,value}:{icon:React.ReactNode;label:string;value:number}){return <div className="stat-card"><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div></div>}
-function TaskCard({task,category,onEdit,onDelete,onStatus}:{task:Task;category?:Category;onEdit:()=>void;onDelete:()=>void;onStatus:(s:TaskStatus)=>void}){const cover=task.images.find(i=>i.isCover)||task.images[0];return <article className="task-card">{cover&&<img className="cover" src={cover.dataUrl} alt="Adjunto de tarea"/>}<div className="task-content"><div className="task-top"><span className={`status ${task.status}`}>{labels[task.status]}</span><div className="card-actions"><button aria-label={`Editar ${task.title}`} onClick={onEdit}><Pencil/></button><button aria-label={`Eliminar ${task.title}`} className="danger-icon" onClick={onDelete}><Trash2/></button></div></div><h3>{task.title}</h3><p className="description">{task.description||'Sin descripción.'}</p><div className="task-meta">{category&&<span className="category-pill"><i style={{background:category.color}}/>{category.name}</span>}{task.dueDate&&<span><CalendarDays/>{new Date(task.dueDate+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'short'})}</span>}{task.images.length>0&&<span><ImagePlus/>{task.images.length}</span>}</div><label className="sr-only" htmlFor={`status-${task.id}`}>Estado de {task.title}</label><select id={`status-${task.id}`} className="quick-status" value={task.status} onChange={e=>onStatus(e.target.value as TaskStatus)}><option value="pending">Pendiente</option><option value="in_progress">En progreso</option><option value="completed">Completada</option></select></div></article>}
-
-function TaskModal({form,setForm,categories,editing,onClose,onSubmit}:{form:TaskForm;setForm:(v:TaskForm)=>void;categories:Category[];editing:boolean;onClose:()=>void;onSubmit:()=>void}){const upload=async(files:FileList|null)=>{if(!files)return;const imgs=await Promise.all([...files].map(f=>new Promise<TaskImage>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve({id:uid(),dataUrl:String(r.result),isCover:false});r.onerror=reject;r.readAsDataURL(f)})));setForm({...form,images:[...form.images,...imgs]})};return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><h2>{editing?'Editar tarea':'Nueva tarea'}</h2><p>{editing?'Actualizá la información de la tarea.':'Agregá una nueva tarea a tu espacio.'}</p></div><button onClick={onClose}><X/></button></div><div className="form"><label>Título<input autoFocus value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Ej. Preparar entrega final"/></label><label>Descripción<textarea rows={4} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Añadí contexto, notas o próximos pasos..."/></label><div className="two"><label>Estado<select value={form.status} onChange={e=>setForm({...form,status:e.target.value as TaskStatus})}><option value="pending">Pendiente</option><option value="in_progress">En progreso</option><option value="completed">Completada</option></select></label><label>Fecha límite<input type="date" value={form.dueDate} onChange={e=>setForm({...form,dueDate:e.target.value})}/></label></div><label>Categoría<select value={form.categoryId} onChange={e=>setForm({...form,categoryId:e.target.value})}><option value="">Sin categoría</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="upload"><ImagePlus/><span>Agregar imágenes</span><small>PNG, JPG o WEBP</small><input type="file" accept="image/*" multiple onChange={e=>upload(e.target.files)}/></label>{form.images.length>0&&<div className="image-list">{form.images.map(im=><div key={im.id}><img src={im.dataUrl}/><button title="Portada" className={im.isCover?'cover-btn active':'cover-btn'} onClick={()=>setForm({...form,images:form.images.map(x=>({...x,isCover:x.id===im.id}))})}>★</button><button className="remove-img" onClick={()=>setForm({...form,images:form.images.filter(x=>x.id!==im.id)})}><X/></button></div>)}</div>}</div><div className="modal-footer"><button className="secondary" onClick={onClose}>Cancelar</button><button className="primary" onClick={onSubmit}>{editing?'Guardar cambios':'Crear tarea'}</button></div></div></div>}
-
-function CategoryModal({categories,onAdd,onDelete,onClose}:{categories:Category[];onAdd:(n:string)=>void;onDelete:(id:string)=>void;onClose:()=>void}){const [name,setName]=useState('');return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal small" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><h2>Categorías</h2><p>Organizá tus tareas por contexto.</p></div><button onClick={onClose}><X/></button></div><div className="category-add"><input placeholder="Nueva categoría" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){onAdd(name);setName('')}}}/><button className="primary" onClick={()=>{onAdd(name);setName('')}}><Plus/></button></div><div className="category-manager">{categories.map(c=><div key={c.id}><span><i style={{background:c.color}}/>{c.name}</span><button onClick={()=>onDelete(c.id)}><Trash2/></button></div>)}</div></div></div>}
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+  return <div className="stat-card"><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div></div>;
+}

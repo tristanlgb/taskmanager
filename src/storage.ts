@@ -28,22 +28,50 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
+function write(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error(`No se pudo guardar ${key} en el navegador.`, error);
+  }
+}
+
+function normalizeTasks(tasks: Task[]): Task[] {
+  if (!Array.isArray(tasks)) return seedTasks;
+  return tasks.filter((task) => task && typeof task.id === 'string').map((task) => ({
+    ...task,
+    title: typeof task.title === 'string' ? task.title : '',
+    description: typeof task.description === 'string' ? task.description : '',
+    dueDate: typeof task.dueDate === 'string' ? task.dueDate : '',
+    categoryId: typeof task.categoryId === 'string' ? task.categoryId : null,
+    images: Array.isArray(task.images) ? task.images : [],
+    createdAt: typeof task.createdAt === 'string' ? task.createdAt : new Date().toISOString(),
+  }));
+}
+
 export const storage = {
-  getTasks: () => read<Task[]>(TASKS_KEY, seedTasks),
-  saveTasks: (tasks: Task[]) => localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)),
+  getTasks: () => normalizeTasks(read<Task[]>(TASKS_KEY, seedTasks)),
+  saveTasks: (tasks: Task[]) => write(TASKS_KEY, tasks),
   getCategories: () => read<Category[]>(CATEGORIES_KEY, seedCategories),
-  saveCategories: (categories: Category[]) => localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories)),
+  saveCategories: (categories: Category[]) => write(CATEGORIES_KEY, categories),
   getUser: () => read<User | null>(USER_KEY, null),
-  saveUser: (user: User | null) => user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY),
+  saveUser: (user: User | null) => {
+    try {
+      if (user) write(USER_KEY, user);
+      else localStorage.removeItem(USER_KEY);
+    } catch (error) {
+      console.error('No se pudo actualizar la sesión local.', error);
+    }
+  },
   getAutomation: () => {
     const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://tristanlgb.app.n8n.cloud/webhook/taskflow-prioritize';
     const saved = read<AutomationSettings>(AUTOMATION_KEY, { webhookUrl, enabled: true });
     return saved.webhookUrl ? saved : { webhookUrl, enabled: true };
   },
-  saveAutomation: (settings: AutomationSettings) => localStorage.setItem(AUTOMATION_KEY, JSON.stringify(settings)),
+  saveAutomation: (settings: AutomationSettings) => write(AUTOMATION_KEY, settings),
   getNotifications: (email = '') => read<NotificationPreferences>(NOTIFICATIONS_KEY, {
     emailEnabled: false, emailAddress: email, telegramEnabled: false, telegramConnected: false,
     urgentAlerts: true, dueAlerts: true, dailySummary: false, advanceHours: 24, dailyTime: '09:00',
   }),
-  saveNotifications: (settings: NotificationPreferences) => localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(settings)),
+  saveNotifications: (settings: NotificationPreferences) => write(NOTIFICATIONS_KEY, settings),
 };

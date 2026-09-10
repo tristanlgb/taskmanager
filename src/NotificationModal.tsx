@@ -4,7 +4,7 @@ import type { NotificationPreferences } from './types';
 export function NotificationModal({draft,setDraft,busy,message,onSave,onTest,onClose}:{draft:NotificationPreferences;setDraft:(value:NotificationPreferences)=>void;busy:boolean;message:string;onSave:()=>void;onTest:()=>void;onClose:()=>void}) {
   const telegramReady = draft.telegramConnected && Boolean(draft.telegramChatId);
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal notification-modal" onMouseDown={event=>event.stopPropagation()}>
-    <div className="modal-head"><div><h2>Notificaciones</h2><p>Elegí cómo y cuándo querés recibir alertas.</p></div><button aria-label="Cerrar notificaciones" onClick={onClose}><X/></button></div>
+    <div className="modal-head"><div><h2>Notificaciones</h2><p>Elegí cómo y cuándo querés recibir alertas.</p></div><button type="button" aria-label="Cerrar notificaciones" onClick={onClose}><X/></button></div>
     <div className="form notification-form">
       <section className="notification-channel"><div className="channel-title"><Mail/><div><strong>Email</strong><small>Usamos inicialmente el email de tu perfil.</small></div><label className="toggle"><input type="checkbox" checked={draft.emailEnabled} onChange={event=>setDraft({...draft,emailEnabled:event.target.checked})}/><span/></label></div><label>Email de destino<input type="email" disabled={!draft.emailEnabled} value={draft.emailAddress} onChange={event=>setDraft({...draft,emailAddress:event.target.value})} placeholder="nombre@ejemplo.com"/></label></section>
       <section className="notification-channel"><div className="channel-title"><Send/><div><strong>Telegram</strong><small>{telegramReady?'Bot conectado':'Conectá el bot y presioná Start para autorizar el chat.'}</small></div><span className={`connection-badge ${telegramReady?'connected':''}`}>{telegramReady?'Conectado':'Pendiente'}</span></div><button className="secondary telegram-connect" disabled type="button">{telegramReady?'Telegram conectado':'Bot pendiente de configurar en n8n'}</button></section>
@@ -17,6 +17,6 @@ export function NotificationModal({draft,setDraft,busy,message,onSave,onTest,onC
       {message&&<p className="automation-message" role="status">{message}</p>}
       <small className="privacy-note">Las credenciales de correo y Telegram permanecen en n8n. TaskFlow solo guarda tus preferencias en este navegador.</small>
     </div>
-    <div className="modal-footer"><button className="secondary" disabled={busy||(!draft.emailEnabled&&!telegramReady)} onClick={onTest}><Send/>{busy?'Enviando…':'Enviar prueba'}</button><button className="primary" onClick={onSave}>Guardar preferencias</button></div>
+    <div className="modal-footer"><button type="button" className="secondary" disabled={busy||(!draft.emailEnabled&&!telegramReady)} onClick={onTest}><Send/>{busy?'Enviando…':'Enviar prueba'}</button><button type="button" className="primary" onClick={onSave}>Guardar preferencias</button></div>
   </div></div>;
 }
